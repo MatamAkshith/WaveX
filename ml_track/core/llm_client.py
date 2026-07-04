@@ -1,6 +1,6 @@
 import requests
 
-LLM_MODE = "mock"
+LLM_MODE = "hosted_api"
 LM_STUDIO_URL = "http://localhost:1234/v1/chat/completions"
 LM_STUDIO_MODEL = "qwen3-8b"
 
@@ -29,8 +29,22 @@ def _call_lm_studio(system_prompt: str, user_prompt: str) -> str:
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-def _call_hosted_api(system_prompt: str, user_prompt: str) -> str:
-    raise NotImplementedError("Hosted API not configured yet")
+def _call_hosted_api(system_prompt: str, user_prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+    from groq import Groq
+    try:
+        client = Groq()
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1024
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Hosted API error: {e}, falling back to mock")
+        return _mock_response(system_prompt, user_prompt)
 
 def _mock_response(system_prompt: str, user_prompt: str) -> str:
     if "Finance Advisor" in system_prompt:
