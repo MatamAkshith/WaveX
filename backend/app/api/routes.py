@@ -1,59 +1,82 @@
-from datetime import datetime
+"""
+API routes - backed by the real database (Brain 1), RAG (Brain 2), and
+Groq agents (Brain 3).
+
+Request lifecycle for POST /decision:
+  1. Load company profile from DB                    (Brain 1)
+  2. DECISION MEMORY check: has this company decided
+     something similar before? If yes, surface it and
+     ask the Judge to explicitly re-evaluate.
+  3. Retrieve doc chunks + past decisions from Chroma (Brain 2)
+  4. Planner picks experts -> experts analyze
+     -> Judge synthesizes                             (Brain 3)
+  5. Persist to the Decision Ledger                   (Brain 1)
+
+On approval/rejection the decision is indexed into decision memory.
+"""
+
+import logging
+from datetime import datetime, timezone
 from typing import List
-from fastapi import APIRouter, HTTPException, status
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy.orm import Session
+
+from app.agents.base import (
+    EXPERT_DOMAINS,
+    FinanceAgent,
+    GTMAgent,
+    HiringAgent,
+    JudgeAgent,
+    LegalAgent,
+    PlannerAgent,
+)
+from app.database.deps import get_db
+from app.models import Company, Decision, Document
+from app.rag import build_rag_context, find_similar_decision, index_decision, ingest_document, retrieve
 from app.schemas.models import (
     ApprovalRequest,
     CompanyCreate,
     CompanyResponse,
     DecisionRequest,
     DecisionResponse,
+    DocumentResponse,
     ExpertAnalysis,
     Recommendation,
+    SimilarDecision,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Mock storage to hold created items
-MOCK_COMPANIES = [
-    CompanyResponse(
-        id=1,
-        name="Acme Corp",
-        industry="Technology",
-        size="100-500",
-        created_at=datetime.utcnow(),
-    )
-]
+EXPERT_REGISTRY = {
+    "FinanceAgent": FinanceAgent(),
+    "HiringAgent": HiringAgent(),
+    "LegalAgent": LegalAgent(),
+    "GTMAgent": GTMAgent(),
+}
 
-MOCK_DECISIONS = [
-    DecisionResponse(
-        id=1,
-        title="Expansion to EU Market",
-        context="We want to expand our operations into Europe. We need to assess legal compliance, hiring, and capital allocations.",
-        question="Should we launch in Germany next quarter?",
-        company_id=1,
-        expert_analyses=[
-            ExpertAnalysis(
-                agent_name="FinanceAgent",
-                analysis="Initial models show $500k CAC but strong long-term profit pools.",
-                recommendation="Proceed with startup budget cap.",
-            ),
-            ExpertAnalysis(
-                agent_name="LegalAgent",
-                analysis="Compliance looks solid, require local storage for GDPR.",
-                recommendation="Draft localized privacy terms.",
-            ),
-        ],
-        final_recommendation=Recommendation(
-            recommendation="Launch in Germany next quarter under strict budget cap and localized compliance.",
-            why="Strong financial feasibility coupled with clear regulatory resolution.",
-            trade_offs=["Increased administrative overhead for GDPR.", "Longer hire cycles."],
-            next_steps=["Cap budget at $500k.", "Secure EU host.", "Hire local contractors."],
-            confidence=0.85,
-        ),
-        status="pending",
-        created_at=datetime.utcnow(),
+
+def _decision_to_response(d, similar=None):
+    return DecisionResponse(
+        id=d.id,
+        title=d.title,
+        context=d.context,
+        question=d.question,
+        company_id=d.company_id,
+        expert_analyses=[ExpertAnalysis(**a) for a in (d.expert_analyses or [])],
+        final_recommendation=Recommendation(**d.final_recommendation) if d.final_recommendation else None,
+        similar_past_decision=similar,
+        status=d.status,
+        created_at=d.created_at,
     )
-]
+
+
+def _get_company_or_404(db, company_id):
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return company
 
 
 @router.post(
@@ -62,20 +85,62 @@ MOCK_DECISIONS = [
     status_code=status.HTTP_201_CREATED,
     summary="Register a new company",
 )
-def create_company(company: CompanyCreate) -> CompanyResponse:
-    """
-    Registers a company in the Decision OS ecosystem.
-    Currently returns dummy data.
-    """
-    new_company = CompanyResponse(
-        id=len(MOCK_COMPANIES) + 1,
-        name=company.name,
-        industry=company.industry,
-        size=company.size,
-        created_at=datetime.utcnow(),
+def create_company(company: CompanyCreate, db: Session = Depends(get_db)) -> CompanyResponse:
+    row = Company(name=company.name, industry=company.industry, size=company.size)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return CompanyResponse(
+        id=row.id, name=row.name, industry=row.industry, size=row.size, created_at=row.created_at
     )
-    MOCK_COMPANIES.append(new_company)
-    return new_company
+
+
+@router.post(
+    "/company/{company_id}/documents",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a document into the company's knowledge base",
+)
+async def upload_document(
+    company_id: int,
+    file: UploadFile = File(...),
+    domain: str = Form(default="general"),
+    db: Session = Depends(get_db),
+) -> DocumentResponse:
+    """Accepts PDF/TXT/MD. Chunks, embeds, and indexes into ChromaDB with
+    company_id metadata so retrieval stays private per company."""
+    _get_company_or_404(db, company_id)
+
+    doc = Document(company_id=company_id, filename=file.filename, domain=domain)
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    try:
+        data = await file.read()
+        chunk_count = ingest_document(company_id, doc.id, file.filename, domain, data)
+        doc.status = "indexed"
+        doc.chunk_count = chunk_count
+    except Exception as exc:
+        doc.status = "failed"
+        logger.error(f"Ingestion failed for '{file.filename}': {exc}")
+        db.commit()
+        raise HTTPException(status_code=422, detail=f"Could not ingest document: {exc}")
+
+    db.commit()
+    db.refresh(doc)
+    return DocumentResponse.model_validate(doc, from_attributes=True)
+
+
+@router.get(
+    "/company/{company_id}/documents",
+    response_model=List[DocumentResponse],
+    summary="List a company's uploaded documents",
+)
+def list_documents(company_id: int, db: Session = Depends(get_db)) -> List[DocumentResponse]:
+    _get_company_or_404(db, company_id)
+    docs = db.query(Document).filter(Document.company_id == company_id).all()
+    return [DocumentResponse.model_validate(d, from_attributes=True) for d in docs]
 
 
 @router.post(
@@ -84,41 +149,91 @@ def create_company(company: CompanyCreate) -> CompanyResponse:
     status_code=status.HTTP_201_CREATED,
     summary="Create and analyze a decision",
 )
-def create_decision(request: DecisionRequest) -> DecisionResponse:
-    """
-    Submits a decision query to the planning and expert agent pool.
-    Currently returns dummy data.
-    """
-    new_decision = DecisionResponse(
-        id=len(MOCK_DECISIONS) + 1,
+async def create_decision(request: DecisionRequest, db: Session = Depends(get_db)) -> DecisionResponse:
+    company = _get_company_or_404(db, request.company_id)
+
+    # 1. DECISION MEMORY: was something similar already decided?
+    similar_model = None
+    reevaluation_note = ""
+    sim = find_similar_decision(request.question, request.company_id)
+    if sim and sim.get("decision_id"):
+        past_row = db.get(Decision, sim["decision_id"])
+        if past_row:
+            decided_at = past_row.created_at
+            days_ago = None
+            if decided_at:
+                ref = decided_at if decided_at.tzinfo else decided_at.replace(tzinfo=timezone.utc)
+                days_ago = max(0, (datetime.now(timezone.utc) - ref).days)
+            similar_model = SimilarDecision(
+                decision_id=past_row.id,
+                title=past_row.title,
+                status=past_row.status,
+                decided_at=decided_at,
+                days_ago=days_ago,
+                similarity=sim["score"],
+            )
+            past_rec = (past_row.final_recommendation or {}).get("recommendation", "unknown")
+            reevaluation_note = (
+                f"\n\nIMPORTANT - DECISION MEMORY: This company faced a similar decision "
+                f"{days_ago if days_ago is not None else 'some'} days ago "
+                f"(Decision #{past_row.id}: '{past_row.title}', outcome: {past_row.status}, "
+                f"recommendation then: '{past_rec}'). Explicitly state whether your "
+                f"recommendation CHANGES now given the time elapsed and any new context, "
+                f"and reference the past decision in your reasoning."
+            )
+            logger.info(
+                f"Decision memory hit: #{past_row.id} '{past_row.title}' "
+                f"(similarity {sim['score']}, {days_ago} days ago)"
+            )
+
+    # 2. Context bundle (Brain 1) + RAG retrieval (Brain 2)
+    rag = build_rag_context(request.question, request.company_id)
+    context = {
+        "company": {"name": company.name, "industry": company.industry, "size": company.size},
+        "decision_context": request.context + reevaluation_note,
+        "document_chunks": rag["document_chunks"],
+        "past_decisions": rag["past_decisions"],
+    }
+
+    # 3. Planner selects ONLY the relevant experts (Brain 3)
+    planner = PlannerAgent()
+    selected = await planner.plan(request.question, context)
+
+    # 4. Domain-scoped retrieval for each selected expert
+    #    (Legal/Finance automatically blend the global knowledge bases)
+    context["domain_chunks"] = {
+        EXPERT_DOMAINS[name]: retrieve(
+            request.question, request.company_id, domain=EXPERT_DOMAINS[name], k=3
+        )
+        for name in selected
+        if name in EXPERT_DOMAINS
+    }
+
+    # 5. Selected experts analyze independently
+    analyses: List[ExpertAnalysis] = []
+    for name in selected:
+        agent = EXPERT_REGISTRY.get(name)
+        if agent:
+            analyses.append(await agent.analyze(request.question, context))
+
+    # 6. Judge synthesizes (with explicit re-evaluation if memory hit)
+    judge = JudgeAgent()
+    recommendation = await judge.synthesize(analyses, question=request.question + reevaluation_note)
+
+    # 7. Persist to the Decision Ledger
+    row = Decision(
+        company_id=request.company_id,
         title=request.title,
         context=request.context,
         question=request.question,
-        company_id=request.company_id,
-        expert_analyses=[
-            ExpertAnalysis(
-                agent_name="FinanceAgent",
-                analysis="Analyzed context. High initial investment required but positive long-term ROI.",
-                recommendation="Proceed with phased rollout.",
-            ),
-            ExpertAnalysis(
-                agent_name="GTMAgent",
-                analysis="Analyzed market space. Beachhead segment is ready for engagement.",
-                recommendation="Focus on developer tool space first.",
-            ),
-        ],
-        final_recommendation=Recommendation(
-            recommendation="Proceed with development targeting developer tool segment.",
-            why="Expert analysis suggests high segment readiness with low initial resistance.",
-            trade_offs=["Niche segment limit initial scale.", "Competitors might replicate quickly."],
-            next_steps=["Setup beta sandbox.", "Target 10 pilot customers.", "Prepare financial allocations."],
-            confidence=0.9,
-        ),
+        expert_analyses=[a.model_dump() for a in analyses],
+        final_recommendation=recommendation.model_dump(),
         status="pending",
-        created_at=datetime.utcnow(),
     )
-    MOCK_DECISIONS.append(new_decision)
-    return new_decision
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _decision_to_response(row, similar=similar_model)
 
 
 @router.get(
@@ -126,15 +241,11 @@ def create_decision(request: DecisionRequest) -> DecisionResponse:
     response_model=DecisionResponse,
     summary="Retrieve a specific decision analysis",
 )
-def get_decision(id: int) -> DecisionResponse:
-    """
-    Retrieves the analysis report and final recommendation for a decision.
-    Currently returns dummy data.
-    """
-    for decision in MOCK_DECISIONS:
-        if decision.id == id:
-            return decision
-    raise HTTPException(status_code=404, detail="Decision not found")
+def get_decision(id: int, db: Session = Depends(get_db)) -> DecisionResponse:
+    row = db.get(Decision, id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return _decision_to_response(row)
 
 
 @router.get(
@@ -142,32 +253,37 @@ def get_decision(id: int) -> DecisionResponse:
     response_model=List[DecisionResponse],
     summary="Retrieve decision history",
 )
-def get_history() -> List[DecisionResponse]:
-    """
-    Retrieves a list of all historical decisions.
-    Currently returns dummy data.
-    """
-    return MOCK_DECISIONS
+def get_history(db: Session = Depends(get_db)) -> List[DecisionResponse]:
+    rows = db.query(Decision).order_by(Decision.created_at.desc()).all()
+    return [_decision_to_response(r) for r in rows]
 
 
 @router.post(
     "/approve",
     summary="Approve or reject a decision recommendation",
 )
-def approve_decision(request: ApprovalRequest) -> dict:
-    """
-    Approves or rejects a synthesized decision recommendation.
-    Currently returns status status updates as dummy data.
-    """
-    # Check if the decision exists
-    decision_found = False
-    for decision in MOCK_DECISIONS:
-        if decision.id == request.decision_id:
-            decision.status = "approved" if request.approved else "rejected"
-            decision_found = True
-            break
-
-    if not decision_found:
+def approve_decision(request: ApprovalRequest, db: Session = Depends(get_db)) -> dict:
+    row = db.get(Decision, request.decision_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Decision not found")
 
-    return {"status": "approved"}
+    row.status = "approved" if request.approved else "rejected"
+    row.approval_comments = request.comments
+    db.commit()
+
+    # Decision memory: resolved decisions become retrievable context
+    # for future decisions (including rejected ones - knowing what was
+    # turned down and why is as valuable as knowing what was approved).
+    try:
+        index_decision(
+            company_id=row.company_id,
+            decision_id=row.id,
+            title=row.title,
+            question=row.question,
+            recommendation=row.final_recommendation,
+            status=row.status,
+        )
+    except Exception as exc:
+        logger.warning(f"Could not index decision into memory: {exc}")
+
+    return {"status": row.status}

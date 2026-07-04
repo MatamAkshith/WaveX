@@ -107,3 +107,8 @@ env/
 .env
 .env.*
 !.env.example
+
+# WaveX local data stores (never commit databases)
+wavex.db
+*.db
+chroma_db/
