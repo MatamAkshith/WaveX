@@ -287,3 +287,33 @@ def approve_decision(request: ApprovalRequest, db: Session = Depends(get_db)) ->
         logger.warning(f"Could not index decision into memory: {exc}")
 
     return {"status": row.status}
+
+
+# ---------- firewall control (runtime toggle, demo-friendly) ----------
+
+from pydantic import BaseModel as _BaseModel
+
+from app.core.security import firewall
+
+
+class FirewallRequest(_BaseModel):
+    key: str
+
+
+@router.post("/firewall/enable", summary="Arm the database firewall (no restart needed)")
+def enable_firewall(request: FirewallRequest) -> dict:
+    """Anyone may LOCK the system. From this moment every data route
+    requires the X-API-Key header with this key."""
+    firewall["api_key"] = request.key
+    logger.info("FIREWALL ARMED at runtime")
+    return {"firewall": "enabled", "note": "All data routes now require the X-API-Key header."}
+
+
+@router.post("/firewall/disable", summary="Disarm the firewall (requires the current key)")
+def disable_firewall() -> dict:
+    """Only reachable WITH a valid X-API-Key header - the middleware
+    blocks this route like any other when armed. Anyone can lock;
+    only the keyholder can unlock."""
+    firewall["api_key"] = None
+    logger.info("Firewall disarmed by keyholder")
+    return {"firewall": "disabled"}
