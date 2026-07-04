@@ -2,7 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import router as api_router
+from app.api.company import router as company_router
+from app.api.decision import router as decision_router
+from app.api.documents import router as documents_router
 from app.core.config import settings
 from app.database.session import engine
 
@@ -39,8 +41,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API endpoints router
-app.include_router(api_router)
+# Register API Routers with prefixes
+app.include_router(company_router, prefix="/company", tags=["Company"])
+app.include_router(documents_router, prefix="/documents", tags=["Documents"])
+app.include_router(decision_router, prefix="/decision", tags=["Decision"])
 
 
 @app.get("/")

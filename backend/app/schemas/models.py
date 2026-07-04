@@ -3,86 +3,137 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+# ==========================================
+# Company Router Schemas
+# ==========================================
+
+
 class CompanyCreate(BaseModel):
     """
-    Schema for company creation.
+    Schema for company profile creation inputs.
     """
 
+    name: str = Field(..., description="Legal or trade name of the company")
+    industry: str = Field(..., description="Industry domain the company operates in")
+    size: str = Field(..., description="Number of employees or scale category")
+    description: Optional[str] = Field(None, description="Optional brief overview of operations")
+
+
+class CompanyCreateResponse(BaseModel):
+    """
+    Response schema after creating a company profile.
+    """
+
+    id: str = Field(..., description="Dummy generated company ID")
+    message: str = Field(..., description="Action confirmation message")
+
+
+class CompanyProfileResponse(BaseModel):
+    """
+    Detailed company profile representation.
+    """
+
+    id: str = Field(..., description="Unique company ID")
     name: str = Field(..., description="Name of the company")
-    industry: str = Field(..., description="Industry the company operates in")
-    size: str = Field(..., description="Size of the company (e.g. number of employees)")
+    industry: str = Field(..., description="Operating industry")
+    size: str = Field(..., description="Company size category")
+    description: Optional[str] = Field(None, description="Detailed profile overview")
+    created_at: datetime = Field(..., description="Date profile was registered")
 
 
-class CompanyResponse(BaseModel):
+class CompanyUpdate(BaseModel):
     """
-    Schema for company response data.
-    """
-
-    id: int = Field(..., description="Unique database ID of the company")
-    name: str = Field(..., description="Name of the company")
-    industry: str = Field(..., description="Industry the company operates in")
-    size: str = Field(..., description="Size of the company")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
-
-
-class DecisionRequest(BaseModel):
-    """
-    Schema for decision creation/analysis request.
+    Schema for making partial updates to a company profile.
     """
 
-    title: str = Field(..., description="Title of the decision to analyze")
-    context: str = Field(..., description="Background context for the decision")
-    question: str = Field(..., description="The main question/decision to be resolved")
-    company_id: int = Field(..., description="ID of the company requesting the decision")
+    name: Optional[str] = Field(None, description="Updated name of the company")
+    industry: Optional[str] = Field(None, description="Updated industry domain")
+    size: Optional[str] = Field(None, description="Updated size scale category")
+    description: Optional[str] = Field(None, description="Updated profile overview")
+
+
+class CompanyUpdateResponse(BaseModel):
+    """
+    Response schema after updating a company profile.
+    """
+
+    status: str = Field(..., description="Confirmation status (e.g. 'success')")
+
+
+# ==========================================
+# Documents Router Schemas
+# ==========================================
+
+
+class DocumentUploadResponse(BaseModel):
+    """
+    Response returned after uploading a document source.
+    """
+
+    document_id: str = Field(..., description="Generated document identifier")
+    message: str = Field(..., description="Upload success confirmation")
+
+
+class DocumentMetadata(BaseModel):
+    """
+    Metadata representation of an uploaded company document.
+    """
+
+    filename: str = Field(..., description="Original name of the uploaded file")
+    upload_date: datetime = Field(..., description="Timestamp of upload completion")
+    type: str = Field(..., description="Document type category (e.g. PDF, DOCX, CSV)")
+
+
+# ==========================================
+# Decision Router Schemas
+# ==========================================
+
+
+class DecisionCreateRequest(BaseModel):
+    """
+    Input schema to initiate a new decision assessment.
+    """
+
+    company_id: str = Field(..., description="ID of the company requesting analysis")
+    question: str = Field(..., description="The core decision query or dilemma to evaluate")
+
+
+class DecisionInitResponse(BaseModel):
+    """
+    Immediate response returned after initiating a decision evaluation.
+    """
+
+    decision_id: str = Field(..., description="Unique tracker ID for the decision run")
+    status: str = Field(..., description="Current status of workflow execution")
 
 
 class ExpertAnalysis(BaseModel):
     """
-    Schema for individual expert agent analysis.
+    Stub output of a single specialized agent's evaluation.
     """
 
-    agent_name: str = Field(..., description="Name of the analyzing agent (e.g. Finance, Legal)")
-    analysis: str = Field(..., description="Detailed textual analysis from the expert agent")
-    recommendation: str = Field(..., description="Specific recommendation from the expert agent")
+    agent_name: str = Field(..., description="Specialty domain name of the agent")
+    analysis: str = Field(..., description="Evaluation notes generated by the expert")
+    recommendation: str = Field(..., description="Key recommendation proposed by the expert")
 
 
-class Recommendation(BaseModel):
+class DecisionDetailedResponse(BaseModel):
     """
-    Schema for the synthesized final recommendation.
-    """
-
-    recommendation: str = Field(..., description="The final synthesized recommendation")
-    why: str = Field(..., description="Rationale behind the recommendation")
-    trade_offs: List[str] = Field(..., description="Key trade-offs of the recommendation")
-    next_steps: List[str] = Field(..., description="Next steps to implement the recommendation")
-    confidence: float = Field(..., description="Confidence score between 0.0 and 1.0")
-
-
-class DecisionResponse(BaseModel):
-    """
-    Schema for the complete decision response containing full workflow data.
+    Full workflow result output showing planning, expert feedback, and final judge decision.
     """
 
-    id: int = Field(..., description="Unique database ID of the decision analysis")
-    title: str = Field(..., description="Title of the decision")
-    context: str = Field(..., description="Context provided for the decision")
-    question: str = Field(..., description="The decision question analyzed")
-    company_id: int = Field(..., description="ID of the requesting company")
-    expert_analyses: List[ExpertAnalysis] = Field(
-        ..., description="List of individual expert analysis reports"
-    )
-    final_recommendation: Optional[Recommendation] = Field(
-        None, description="The final synthesised recommendation from the Judge agent"
-    )
-    status: str = Field(default="pending", description="Status of the decision (e.g. pending, approved)")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    decision_id: str = Field(..., description="Unique decision run tracker ID")
+    planner: List[str] = Field(..., description="List of expert agents consulted during routing")
+    experts: List[ExpertAnalysis] = Field(..., description="Array of expert evaluation results")
+    recommendation: str = Field(..., description="The final synthesized judge consensus verdict")
+    confidence: float = Field(..., description="synthesized confidence score (0.0 to 1.0)")
+    next_steps: List[str] = Field(..., description="Actionable checklist items resolved from the decision")
+    status: str = Field(..., description="Overall resolution status (e.g. 'completed')")
 
 
-class ApprovalRequest(BaseModel):
+class DecisionApprovalResponse(BaseModel):
     """
-    Schema for decision approval/rejection.
+    Response schema returning status update after recommendation review.
     """
 
-    decision_id: int = Field(..., description="ID of the decision to approve/reject")
-    approved: bool = Field(..., description="True if approved, False if rejected")
-    comments: Optional[str] = Field(None, description="Optional explanation or comments")
+    status: str = Field(..., description="Action taken status ('approved' or 'rejected')")
