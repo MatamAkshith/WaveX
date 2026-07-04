@@ -31,20 +31,26 @@ def _call_lm_studio(system_prompt: str, user_prompt: str) -> str:
 
 def _call_hosted_api(system_prompt: str, user_prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
     from groq import Groq
-    try:
-        client = Groq()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=1024
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"Hosted API error: {e}, falling back to mock")
-        return _mock_response(system_prompt, user_prompt)
+    import time
+    client = Groq()
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=1024
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = e
+            print(f"Groq attempt {attempt+1} failed: {e}, retrying...")
+            time.sleep(1.5)
+    print(f"Hosted API failed after 3 attempts ({last_error}), falling back to mock")
+    return _mock_response(system_prompt, user_prompt)
 
 def _mock_response(system_prompt: str, user_prompt: str) -> str:
     if "Finance Advisor" in system_prompt:

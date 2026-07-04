@@ -32,6 +32,8 @@ def run_decision_pipeline(question: str, company_context: dict, all_chunks: dict
     return {
         "question": question,
         "agents_called": agents_to_call,
+        "routing_method": plan_result.get("routing_method"),
+        "routing_scores": plan_result.get("scores"),
         "agent_results": agent_results,
         "conflict_info": conflict_info,
         "final_judgment": final_judgment
