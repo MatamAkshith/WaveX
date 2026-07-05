@@ -112,3 +112,8 @@ env/
 wavex.db
 *.db
 chroma_db/
+
+# Frontend (Vite/React)
+node_modules/
+dist/
+*.local
