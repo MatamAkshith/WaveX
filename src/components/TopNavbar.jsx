@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
     ShieldCheck,
@@ -13,12 +13,39 @@ import {
     Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getSession, getDashboardSummary } from '../lib/api';
 
 export default function TopNavbar({ isCollapsed, onMenuClick }) {
     const navigate = useNavigate();
     const [profileOpen, setProfileOpen] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [isDark, setIsDark] = useState(true); // Prototype state
+    const [userName, setUserName] = useState('Juliet Dev');
+
+    useEffect(() => {
+        const session = getSession();
+        if (session) {
+            if (session.full_name) {
+                setUserName(session.full_name);
+            }
+        }
+        if (session && session.founder_id) {
+            getDashboardSummary()
+                .then(summary => {
+                    if (summary && summary.full_name) {
+                        setUserName(summary.full_name);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, []);
+
+    const initials = userName
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase() || 'JD';
 
     const handleLogout = () => {
         navigate('/');
@@ -38,11 +65,9 @@ export default function TopNavbar({ isCollapsed, onMenuClick }) {
                 </button>
 
                 <Link to="/" className="flex items-center gap-2 group">
-                    <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-violet-600 to-blue-500 flex items-center justify-center shadow-md shadow-violet-500/10">
-                        <ShieldCheck className="h-4.5 w-4.5 text-white" />
-                    </div>
+                    <img src="/wavex-logo.png" alt="WaveX" className="h-8 w-8 rounded-lg object-cover border border-white/10" />
                     <span className="text-base font-bold tracking-tight text-white select-none">
-                        Decision<span className="text-violet-400">OS</span>
+                        Wave<span className="text-violet-400">X</span>
                     </span>
                 </Link>
             </div>
@@ -116,9 +141,9 @@ export default function TopNavbar({ isCollapsed, onMenuClick }) {
                     >
                         {/* User Avatar */}
                         <div className="h-7 w-7 rounded-full bg-gradient-to-tr from-violet-600 to-blue-500 flex items-center justify-center text-[10px] font-bold text-white">
-                            JD
+                            {initials}
                         </div>
-                        <span className="hidden sm:inline text-xs font-semibold text-gray-300">Juliet Dev</span>
+                        <span className="hidden sm:inline text-xs font-semibold text-gray-300">{userName}</span>
                         <ChevronDown className="h-3 w-3 text-gray-500" />
                     </button>
 

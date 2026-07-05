@@ -1,14 +1,42 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { User, ShieldCheck, Mail, Key, Award, Heart } from 'lucide-react';
+import { getSession, getDashboardSummary } from '../lib/api';
 
 export default function FounderProfile() {
+    const [founderName, setFounderName] = useState('Juliet Dev');
+    const [founderEmail, setFounderEmail] = useState('founder@decisionos.com');
+
+    useEffect(() => {
+        const session = getSession();
+        if (session) {
+            if (session.full_name) setFounderName(session.full_name);
+            if (session.email) setFounderEmail(session.email);
+        }
+        if (session && session.founder_id) {
+            getDashboardSummary()
+                .then(summary => {
+                    if (summary && summary.full_name) {
+                        setFounderName(summary.full_name);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, []);
+
     const credentials = [
-        { title: 'Full Name', value: 'Juliet Dev' },
+        { title: 'Full Name', value: founderName },
         { title: 'Designation Role', value: 'Chief Executive Officer & Founder' },
-        { title: 'Registered Email', value: 'founder@decisionos.com' },
+        { title: 'Registered Email', value: founderEmail },
         { title: 'Workspace Rank', value: 'Super Administrator' },
     ];
+
+    const initials = founderName
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase() || 'JD';
 
     return (
         <motion.div
@@ -36,13 +64,13 @@ export default function FounderProfile() {
                         {/* Profile Avatar Card inside */}
                         <div className="flex flex-col sm:flex-row items-center gap-4.5 p-4 rounded-xl bg-white/[0.01] border border-white/5">
                             <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-violet-600 to-blue-500 flex items-center justify-center text-3xl font-black tracking-tight text-white shadow-xl shadow-violet-500/10">
-                                JD
+                                {initials}
                             </div>
                             <div className="text-center sm:text-left space-y-1">
                                 <span className="px-2 py-0.5 rounded-full font-bold text-[9px] tracking-wide uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                     SYSTEM ACTIVE
                                 </span>
-                                <h4 className="text-base font-bold text-white">Juliet Dev</h4>
+                                <h4 className="text-base font-bold text-white">{founderName}</h4>
                                 <p className="text-xs text-gray-400 font-normal">Registered Super Administrator for WaveX</p>
                             </div>
                         </div>
