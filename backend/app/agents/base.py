@@ -36,6 +36,64 @@ _FALLBACK_KEYWORDS = {
 }
 
 
+
+# BI metric contracts: what each advisor must quantify, and how the
+# frontend should chart each key. LLM outputs numbers ONLY - the
+# frontend turns them into charts.
+METRIC_SPECS = {
+    "finance": '"runway_months": <number>, "cash_available": <number>, "monthly_burn": <number>, "burn_after_decision": <number>, "risk_score": <0-100>, "confidence": <0-100>',
+    "hiring": '"team_size": <number>, "recommended_team_size": <number>, "hiring_cost_monthly": <number>, "hiring_priority_score": <0-100>, "risk_score": <0-100>, "confidence": <0-100>',
+    "legal": '"legal_risk": <0-100>, "compliance_score": <0-100>, "confidence": <0-100>',
+    "gtm": '"marketing_budget": <number>, "expected_roi_percent": <number>, "cac": <number>, "ltv": <number>, "risk_score": <0-100>, "confidence": <0-100>',
+}
+
+CHART_HINTS = {
+    "finance": {
+        "runway_months": "gauge", "cash_available": "bar", "monthly_burn": "bar",
+        "burn_after_decision": "bar", "cash_projection": "area", "risk_score": "progress_ring",
+        "confidence": "progress_ring",
+    },
+    "hiring": {
+        "team_size": "bar", "recommended_team_size": "bar", "hiring_cost_monthly": "bar",
+        "hiring_priority_score": "gauge", "risk_score": "progress_ring", "confidence": "progress_ring",
+    },
+    "legal": {"legal_risk": "progress_ring", "compliance_score": "progress_ring", "confidence": "progress_ring"},
+    "gtm": {
+        "marketing_budget": "bar", "expected_roi_percent": "gauge", "cac": "bar", "ltv": "bar",
+        "customer_growth_prediction": "line", "risk_score": "progress_ring", "confidence": "progress_ring",
+    },
+    "judge": {
+        "overall_risk": "gauge", "overall_confidence": "progress_ring",
+        "advisor_consensus": "donut", "decision": "label",
+    },
+}
+
+
+def _num(v, lo=None, hi=None):
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    if lo is not None: n = max(lo, n)
+    if hi is not None: n = min(hi, n)
+    return round(n, 2)
+
+
+def _clean_metrics(raw):
+    """Keep only numeric values / numeric lists - never trust LLM types."""
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if isinstance(v, (int, float)):
+            out[k] = round(float(v), 2)
+        elif isinstance(v, list) and v and all(isinstance(x, (int, float)) for x in v):
+            out[k] = [round(float(x), 2) for x in v[:12]]
+        elif isinstance(v, str) and k in ("decision", "hiring_priority"):
+            out[k] = v[:60]
+    return out
+
+
 def _format_chunks(chunks, limit=4):
     if not chunks:
         return "None available."
@@ -87,19 +145,26 @@ class _BaseExpert:
 
     async def analyze(self, question: str, context: dict) -> ExpertAnalysis:
         domain_chunks = context.get("domain_chunks", {}).get(self.domain, [])
+        metric_spec = METRIC_SPECS.get(self.domain, '"confidence": <0-100>')
+        bi_part = (
+            '"key_insights": ["<insight 1>", "<insight 2>", "<insight 3>"], '
+            '"metrics": {' + metric_spec + '}, '
+            '"recommendations": ["<action 1>", "<action 2>"]'
+        )
         if self.action_instruction:
             json_shape = (
                 '{"analysis": "<3-5 sentences>", "recommendation": "<1-2 sentences>", '
-                '"action_output": "<the deliverable>"}'
+                '"action_output": "<the deliverable>", ' + bi_part + '}'
             )
         else:
-            json_shape = '{"analysis": "<3-5 sentences>", "recommendation": "<1-2 sentences>"}'
+            json_shape = '{"analysis": "<3-5 sentences>", "recommendation": "<1-2 sentences>", ' + bi_part + '}'
         reply = complete(
             system=(
                 f"You are the {self.name} of a startup decision engine. {self.persona} "
                 "Ground your analysis in the provided company facts and knowledge chunks - cite "
                 "sources by name when you use them. Be specific and quantitative where possible. "
                 f"{self.action_instruction} "
+                "All metrics MUST be plain numbers derived from the company profile and your analysis - no strings, no units, no graphs. "
                 f"Reply with ONLY JSON: {json_shape}"
             ),
             user=(
@@ -121,11 +186,16 @@ class _BaseExpert:
                 analysis=str(data.get("analysis", "")),
                 recommendation=str(data.get("recommendation", "")),
                 action_output=str(action) if action else None,
+                key_insights=[str(i)[:200] for i in data.get("key_insights", [])[:4]],
+                metrics=_clean_metrics(data.get("metrics")),
+                chart_hints=CHART_HINTS.get(self.domain, {}),
+                recommendations=[str(r)[:200] for r in data.get("recommendations", [])[:4]],
             )
         return ExpertAnalysis(
             agent_name=self.name,
             analysis=self.fallback_analysis,
             recommendation=self.fallback_recommendation,
+            chart_hints=CHART_HINTS.get(self.domain, {}),
         )
 
 
@@ -213,7 +283,9 @@ class JudgeAgent:
                 "You are the Judge of a startup decision engine. Synthesize the expert analyses "
                 "into ONE clear, decisive recommendation. Weigh disagreements explicitly. "
                 'Reply with ONLY JSON: {"recommendation": str, "why": str, '
-                '"trade_offs": [str, str], "next_steps": [str, str, str], "confidence": <0.0-1.0>}'
+                '"trade_offs": [str, str], "next_steps": [str, str, str], "confidence": <0.0-1.0>, '
+                '"metrics": {"overall_risk": <0-100>, "overall_confidence": <0-100>, '
+                '"advisor_consensus": <0-100 how aligned the experts are>, "decision": "<2-4 word label>"}}'
             ),
             user=f"Question: {question}\n\nExpert analyses:\n{experts_block}",
             temperature=0.3,
@@ -228,15 +300,25 @@ class JudgeAgent:
                     trade_offs=[str(t) for t in data.get("trade_offs", [])] or ["Not specified."],
                     next_steps=[str(s) for s in data.get("next_steps", [])] or ["Review with the team."],
                     confidence=max(0.0, min(1.0, float(data.get("confidence", 0.7)))),
+                    metrics=_clean_metrics(data.get("metrics")),
                 )
             except (TypeError, ValueError):
                 pass
 
         why_parts = [f"{a.agent_name} recommended: '{a.recommendation}'" for a in analyses]
+        expert_conf = [a.metrics.get("confidence") for a in analyses if a.metrics.get("confidence")]
+        expert_risk = [a.metrics.get("risk_score") for a in analyses if a.metrics.get("risk_score")]
+        avg = lambda xs, d: round(sum(xs) / len(xs), 1) if xs else d
         return Recommendation(
             recommendation="Proceed with the strategic initiative under a phased roll-out plan.",
             why=f"Synthesized from expert inputs: {' | '.join(why_parts)}.",
             trade_offs=["Execution risk during roll-out.", "Resource allocation trade-offs."],
             next_steps=["Approve phase-1 budget.", "Assign owners.", "Review in 30 days."],
             confidence=0.75,
+            metrics={
+                "overall_risk": avg(expert_risk, 50),
+                "overall_confidence": avg(expert_conf, 75),
+                "advisor_consensus": 80,
+                "decision": "Phased roll-out",
+            },
         )

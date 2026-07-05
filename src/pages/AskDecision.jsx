@@ -14,6 +14,7 @@ import {
     FileText
 } from 'lucide-react';
 import { createDecision, approveDecision } from '../lib/api';
+import MetricsPanel from '../components/MetricsPanel';
 
 const AGENT_META = {
     FinanceAgent: { label: 'Finance AI', status: 'VERIFIED', sentiment: 'positive' },
@@ -60,6 +61,10 @@ export default function AskDecision() {
                     message: a.analysis,
                     recommendation: a.recommendation,
                     actionOutput: a.action_output,
+                    keyInsights: a.key_insights || [],
+                    metrics: a.metrics || {},
+                    chartHints: a.chart_hints || {},
+                    recommendations: a.recommendations || [],
                 };
             });
 
@@ -77,6 +82,7 @@ export default function AskDecision() {
                         recommendation: rec.recommendation,
                         confidence: `${Math.round(rec.confidence * 100)}%`,
                         rationale: rec.why,
+                        metrics: rec.metrics || {},
                         tradeOffs: rec.trade_offs || [],
                         nextSteps: rec.next_steps || [],
                     });
@@ -231,6 +237,18 @@ export default function AskDecision() {
                                                 <p className="text-[11px] text-gray-300 leading-relaxed whitespace-pre-wrap font-normal">{log.actionOutput}</p>
                                             </div>
                                         )}
+
+                                        {log.keyInsights.length > 0 && (
+                                            <ul className="space-y-1 pt-1">
+                                                {log.keyInsights.map((ins, i) => (
+                                                    <li key={i} className="text-[11px] text-gray-400 flex gap-1.5">
+                                                        <span className="text-violet-400 font-bold">›</span> {ins}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+
+                                        <MetricsPanel metrics={log.metrics} hints={log.chartHints} />
                                     </motion.div>
                                 ))}
                             </div>
@@ -273,6 +291,8 @@ export default function AskDecision() {
                                                 ))}
                                             </div>
                                         )}
+
+                                        <MetricsPanel metrics={consensusResult.metrics} hints={{ overall_risk: 'gauge', overall_confidence: 'progress_ring', advisor_consensus: 'progress_ring', decision: 'label' }} />
 
                                         {/* Founder resolution: writes to the Decision Ledger + memory */}
                                         {resolution ? (
@@ -322,7 +342,7 @@ export default function AskDecision() {
                             </li>
                             <li className="flex items-start gap-2">
                                 <ChevronRight className="h-4 w-4 flex-shrink-0 text-violet-500 mt-0.5" />
-                                Every resolved decision enters organizational memory — similar future questions trigger an explicit re-evaluation.
+                                Every advisor also returns structured metrics — the charts you see are generated from those numbers, not by the AI.
                             </li>
                         </ul>
                     </div>

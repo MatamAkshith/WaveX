@@ -40,6 +40,10 @@ class ExpertAnalysis(BaseModel):
         None,
         description="Concrete deliverable produced by action agents (e.g. job description draft, GTM plan)",
     )
+    key_insights: List[str] = Field(default_factory=list, description="3 short bullet insights")
+    metrics: dict = Field(default_factory=dict, description="Structured numerical data for BI charts")
+    chart_hints: dict = Field(default_factory=dict, description="metric_key -> suggested chart type")
+    recommendations: List[str] = Field(default_factory=list, description="Short actionable recommendations")
 
 
 class Recommendation(BaseModel):
@@ -50,6 +54,10 @@ class Recommendation(BaseModel):
     trade_offs: List[str] = Field(..., description="Key trade-offs of the recommendation")
     next_steps: List[str] = Field(..., description="Next steps to implement the recommendation")
     confidence: float = Field(..., description="Confidence score between 0.0 and 1.0")
+    metrics: dict = Field(
+        default_factory=dict,
+        description="Judge BI metrics: overall_risk, overall_confidence, advisor_consensus, decision",
+    )
 
 
 class SimilarDecision(BaseModel):
