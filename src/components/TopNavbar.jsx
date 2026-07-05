@@ -107,7 +107,8 @@ export default function TopNavbar({ isCollapsed, onMenuClick }) {
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                                     transition={{ duration: 0.12 }}
-                                    className="absolute right-0 top-full mt-[28px] w-[350px] max-w-[calc(100vw-2rem)] max-h-[350px] overflow-y-auto glass-panel border border-white/5 bg-[#0B0B0B]/98 rounded-xl p-4 shadow-2xl z-50 text-left"
+                                    className="absolute right-0 top-full mt-[28px] w-[350px] max-w-[calc(100vw-2rem)] max-h-[350px] overflow-y-auto border border-white/10 rounded-xl p-4 shadow-2xl z-50 text-left"
+                                    style={{ backgroundColor: '#0d0d12' }}
                                 >
                                     <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-3">
                                         <p className="text-xs font-bold text-white uppercase tracking-wider">Recent Notifications</p>

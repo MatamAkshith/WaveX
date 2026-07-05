@@ -11,7 +11,8 @@ import {
     History
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
-import { getDashboardSummary, getSession } from '../lib/api';
+import { getDashboardSummary, getSession, getHistory } from '../lib/api';
+import MetricsPanel from '../components/MetricsPanel';
 import QuickActionCard from '../components/QuickActionCard';
 import DecisionTable from '../components/DecisionTable';
 import CompanySnapshot from '../components/CompanySnapshot';
@@ -26,8 +27,48 @@ export default function Dashboard() {
     ];
 
     const [summary, setSummary] = useState(null);
+    const [perf, setPerf] = useState(null);
+    const [realDecisions, setRealDecisions] = useState(null);
     useEffect(() => {
         getDashboardSummary().then(setSummary).catch(() => setSummary(null));
+        // FOUNDER PERFORMANCE: computed from the real Decision Ledger
+        getHistory().then((rows) => {
+            if (!rows || rows.length === 0) return;
+            const chrono = [...rows].reverse();
+            const approved = rows.filter((r) => r.status === 'approved').length;
+            const rejected = rows.filter((r) => r.status === 'rejected').length;
+            const resolved = approved + rejected;
+            const confs = chrono
+                .filter((r) => r.final_recommendation)
+                .map((r) => Math.round(r.final_recommendation.confidence * 100));
+            setPerf({
+                metrics: {
+                    decisions_made: rows.length,
+                    approved,
+                    rejected,
+                    pending: rows.length - resolved,
+                    ...(resolved > 0 && { approval_rate: Math.round((approved / resolved) * 100) }),
+                    ...(confs.length > 0 && {
+                        avg_confidence: Math.round(confs.reduce((a, b) => a + b, 0) / confs.length),
+                    }),
+                    ...(confs.length > 1 && { confidence_trend: confs }),
+                    ...(chrono.length > 1 && {
+                        decision_activity: chrono.map((_, i) => i + 1),
+                    }),
+                },
+                hints: {
+                    approval_rate: 'progress_ring', avg_confidence: 'progress_ring',
+                    confidence_trend: 'line', decision_activity: 'area',
+                    decisions_made: 'bar', approved: 'bar', rejected: 'bar', pending: 'bar',
+                },
+            });
+            setRealDecisions(rows.slice(0, 4).map((r) => ({
+                question: r.question,
+                status: r.status.charAt(0).toUpperCase() + r.status.slice(1),
+                confidence: r.final_recommendation ? `${Math.round(r.final_recommendation.confidence * 100)}%` : '—',
+                date: new Date(r.created_at).toLocaleDateString(),
+            })));
+        }).catch(() => {});
     }, []);
 
     const hour = new Date().getHours();
@@ -106,8 +147,19 @@ export default function Dashboard() {
                         </div>
                     </div>
 
+                    {/* Founder Performance - real data from the Decision Ledger */}
+                    {perf && (
+                        <div className="glass-panel p-5.5 rounded-2xl border border-white/5 shadow-xl text-left space-y-1">
+                            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Founder Performance</h4>
+                            <p className="text-[11px] text-gray-500 font-normal">
+                                Computed live from your Decision Ledger — approval rate, confidence trend, and decision activity over time.
+                            </p>
+                            <MetricsPanel metrics={perf.metrics} hints={perf.hints} />
+                        </div>
+                    )}
+
                     {/* Decision Logs */}
-                    <DecisionTable data={recentDecisions} />
+                    <DecisionTable data={realDecisions || recentDecisions} />
 
                 </div>
 
