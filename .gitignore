@@ -1,0 +1,119 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these written to a standalone folder, or same folder as tests
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nosenv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the values are
+#   specific to the developer's system of choice. But in a hackathon setting we ignore it:
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#1263, we should ignore Pipfile.lock if we are developing
+#   an application rather than a library.
+# Pipfile.lock
+
+# poetry
+#   Similarly, in common environments poetry.lock can be ignored/tracked depending on team preference.
+# poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, PDM's lockfile can be ignored/tracked depending on preference.
+# pdm.lock
+
+# virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# WaveX local data stores (never commit databases)
+wavex.db
+*.db
+chroma_db/
+
+# Frontend (Vite/React)
+node_modules/
+dist/
+*.local
