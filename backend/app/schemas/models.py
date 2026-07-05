@@ -104,3 +104,68 @@ class DocumentResponse(BaseModel):
     status: str = Field(..., description="Ingestion status (processing/indexed/failed)")
     chunk_count: int = Field(..., description="Number of chunks indexed into the vector store")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Upload timestamp")
+
+
+# --- Onboarding schemas (additive) ---
+
+
+class GoogleAuthRequest(BaseModel):
+    """Demo Google auth payload (swap for real OAuth token later)."""
+
+    email: str = Field(..., description="Google account email")
+    full_name: str = Field(..., description="Google account display name")
+    avatar_url: Optional[str] = Field(None, description="Google profile picture URL")
+
+
+class AuthResponse(BaseModel):
+    founder_id: int = Field(..., description="Founder account id")
+    full_name: str = Field(..., description="Founder display name")
+    onboarded: bool = Field(..., description="True if onboarding was completed before")
+    company_id: Optional[int] = Field(None, description="Founder's company, if created")
+
+
+class FounderOnboardingRequest(BaseModel):
+    founder_id: int
+    role: str = Field(..., description="CEO / CTO / COO / Other")
+    years_experience: int = Field(..., ge=0, le=60)
+    industry_experience: str = Field(..., max_length=255)
+    country: str = Field(..., max_length=100)
+    timezone_name: str = Field(..., max_length=100)
+    language: str = Field(default="English", max_length=50)
+    decision_style: str = Field(..., description="Conservative / Balanced / Aggressive")
+    biggest_challenge: str = Field(..., description="Hiring/Finance/Fundraising/Product/Marketing/Sales/Operations")
+    notification_preference: str = Field(default="Email")
+
+
+class CompanyOnboardingRequest(BaseModel):
+    founder_id: int
+    name: str = Field(..., min_length=1, max_length=255)
+    industry: str = Field(..., min_length=1, max_length=255)
+    stage: str = Field(..., description="Idea/MVP/Early Revenue/Growth/Scaling/Enterprise")
+    team_size: int = Field(..., ge=1, le=100000)
+    monthly_revenue: float = Field(..., ge=0)
+    monthly_expenses: float = Field(..., ge=0)
+    cash_available: float = Field(..., ge=0)
+    funding_raised: float = Field(default=0, ge=0)
+    funding_stage: str = Field(..., description="Bootstrapped/Pre Seed/Seed/Series A/Series B/Other")
+    goals: List[str] = Field(default_factory=list, max_length=10)
+    context_memory: str = Field(default="", max_length=20000)
+
+
+class OnboardingCompanyResponse(BaseModel):
+    company_id: int
+    runway_months: Optional[float] = None
+    onboarded: bool = True
+
+
+class DashboardSummary(BaseModel):
+    full_name: str
+    company_name: Optional[str] = None
+    stage: Optional[str] = None
+    runway_months: Optional[float] = None
+    monthly_revenue: Optional[float] = None
+    team_size: Optional[int] = None
+    funding_stage: Optional[str] = None
+    top_goal: Optional[str] = None
+    goals: List[str] = Field(default_factory=list)
+    decisions_count: int = 0

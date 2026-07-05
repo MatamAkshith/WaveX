@@ -8,6 +8,7 @@ import AuthFooter from '../components/AuthFooter';
 import InputField from '../components/InputField';
 import PasswordField from '../components/PasswordField';
 import SocialLoginButton from '../components/SocialLoginButton';
+import { googleAuth } from '../lib/api';
 
 export default function Login() {
     const navigate = useNavigate();
@@ -57,12 +58,23 @@ export default function Login() {
         }, 1800);
     };
 
-    const handleGoogleLogin = () => {
+    const handleGoogleLogin = async () => {
         setToastMessage(null);
-        setTimeout(() => {
+        try {
+            setToastType('success');
+            const res = await googleAuth({
+                email: 'akshaykumarcherry@gmail.com',
+                full_name: 'Akshay Kumar',
+                avatar_url: null,
+            });
+            setToastMessage(`Welcome${res.onboarded ? ' back' : ''}, ${res.full_name}!`);
+            setTimeout(() => {
+                navigate(res.onboarded ? '/dashboard' : '/onboarding');
+            }, 900);
+        } catch (err) {
             setToastType('info');
-            setToastMessage('Google Sign-In is not available in this prototype. Backend OAuth integration will be implemented in a future version.');
-        }, 50);
+            setToastMessage(`Sign-in failed: ${err.message}. Is the backend running?`);
+        }
     };
 
     return (

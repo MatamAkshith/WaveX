@@ -12,6 +12,7 @@ import Documents from './pages/Documents';
 import AskDecision from './pages/AskDecision';
 import DecisionHistory from './pages/DecisionHistory';
 import Settings from './pages/Settings';
+import Onboarding from './pages/Onboarding';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/onboarding" element={<Onboarding />} />
 
         {/* Dashboard layout wrapping all workspace paths */}
         <Route element={<DashboardLayout />}>

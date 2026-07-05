@@ -128,3 +128,35 @@ PENDING / NEXT
 - Optional: Supabase PostgreSQL swap (one env line)
 - Optional: hosting/deployment (Dockerfile exists)
 - Optional: conflict-detection/debate round between experts
+
+==============================================================
+ONBOARDING FLOW (added)
+==============================================================
+Sign Up with Google (demo auth, real-OAuth-swappable) ->
+first-timers: 2-step onboarding | returning: straight to dashboard.
+
+Step 1 Founder form: role, experience, country, timezone, language,
+decision style, biggest challenge, notification preference.
+Step 2 Company form: name, industry, stage, team size, revenue,
+burn, cash, funding raised/stage, RUNWAY AUTO-CALCULATED live,
+multi-select business goals, Company Context Memory textarea.
+
+DB tables (FK-linked, Postgres-ready): founders, founder_preferences,
+companies (extended with metrics), company_goals, context_memory.
+SQLite auto-migration adds new columns to existing databases.
+
+ADVISOR CONTEXT INJECTION: every POST /decision builds a
+COMPANY BUSINESS PROFILE block (revenue, burn, runway, team, stage,
+funding, goals, founder style/challenge) and injects it into every
+expert prompt + the Judge automatically. Context Memory is chunked
+into ChromaDB so advisors also retrieve it semantically. The founder
+NEVER repeats their details.
+
+New endpoints: POST /auth/google, POST /onboarding/founder,
+POST /onboarding/company, GET /founder/{id}/summary.
+Dashboard greets: "Good Evening, Akshay" + company/stage/runway/
+revenue/goal stats, live from the summary API.
+
+Verified: 7-check e2e suite (auth routing, runway calc 11.1mo,
+returning-user redirect, dashboard summary, agent prompts provably
+contain the injected profile, context memory retrievable).

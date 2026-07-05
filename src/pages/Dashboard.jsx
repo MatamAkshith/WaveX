@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
     Calendar,
@@ -11,18 +11,36 @@ import {
     History
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
+import { getDashboardSummary, getSession } from '../lib/api';
 import QuickActionCard from '../components/QuickActionCard';
 import DecisionTable from '../components/DecisionTable';
 import CompanySnapshot from '../components/CompanySnapshot';
 import ExpertStatusCard from '../components/ExpertStatusCard';
 
 export default function Dashboard() {
-    const statItems = [
+    const fallbackStats = [
         { title: 'Projected Runway', value: '12 Months', icon: Calendar, trend: 'Calculated matching current burn rate', trendType: 'neutral' },
         { title: 'Monthly Recurring Revenue', value: '$50K MRR', icon: DollarSign, trend: '+14% growth vs previous month', trendType: 'positive' },
         { title: 'FTE Employees', value: '18', icon: Users, trend: '+2 roles filled last week', trendType: 'positive' },
         { title: 'Funding Phase', value: 'Seed', icon: Award, trend: '$2.5M raised from benchmark VCs', trendType: 'neutral' },
     ];
+
+    const [summary, setSummary] = useState(null);
+    useEffect(() => {
+        getDashboardSummary().then(setSummary).catch(() => setSummary(null));
+    }, []);
+
+    const hour = new Date().getHours();
+    const daypart = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+    const firstName = (summary?.full_name || getSession()?.full_name || 'Founder').split(' ')[0];
+
+    const inr = (n) => (n === null || n === undefined) ? null : `\u20B9${Number(n).toLocaleString('en-IN')}/month`;
+    const statItems = summary && summary.company_name ? [
+        { title: 'Projected Runway', value: summary.runway_months >= 99 ? 'Profitable' : `${summary.runway_months ?? '—'} Months`, icon: Calendar, trend: 'Auto-calculated from cash / net burn', trendType: 'neutral' },
+        { title: 'Monthly Revenue', value: inr(summary.monthly_revenue) || '—', icon: DollarSign, trend: `Stage: ${summary.stage || '—'}`, trendType: 'positive' },
+        { title: 'Team Size', value: `${summary.team_size ?? '—'}`, icon: Users, trend: summary.company_name, trendType: 'neutral' },
+        { title: 'Current Goal', value: summary.top_goal || 'Set goals', icon: Award, trend: `Funding: ${summary.funding_stage || '—'}`, trendType: 'neutral' },
+    ] : fallbackStats;
 
     const quickActions = [
         { title: 'Ask New Decision', desc: 'Trigger a multi-agent debate simulation on business proposals.', icon: Brain, to: '/decision' },
@@ -46,8 +64,10 @@ export default function Dashboard() {
         >
             {/* Page Header */}
             <div className="text-left space-y-1">
-                <h1 className="text-3xl font-black tracking-tight text-white">Dashboard</h1>
-                <p className="text-sm text-gray-400 font-normal">Welcome back! Here's an overview of your company.</p>
+                <h1 className="text-3xl font-black tracking-tight text-white">Good {daypart}, {firstName} 👋</h1>
+                <p className="text-sm text-gray-400 font-normal">
+                    Welcome back to the WaveX Decision Room.{summary?.company_name ? ` ${summary.company_name} · ${summary.stage || ''} · Today's AI advisors are ready.` : " Here's an overview of your company."}
+                </p>
             </div>
 
             {/* Grid of 4 StatCards */}

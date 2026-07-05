@@ -152,6 +152,38 @@ def list_documents(company_id: int, db: Session = Depends(get_db)) -> List[Docum
 async def create_decision(request: DecisionRequest, db: Session = Depends(get_db)) -> DecisionResponse:
     company = _get_company_or_404(db, request.company_id)
 
+    # BUSINESS PROFILE: every advisor automatically receives the founder's
+    # onboarding data - metrics, goals, style - with zero repetition needed.
+    goals = [g.goal for g in company.goals]
+    founder = company.founder
+    profile_lines = [f"Company: {company.name} | Industry: {company.industry}"]
+    if company.stage:
+        profile_lines.append(f"Startup stage: {company.stage} | Funding stage: {company.funding_stage or 'n/a'}")
+    if company.team_size:
+        profile_lines.append(f"Team size: {company.team_size}")
+    if company.monthly_revenue is not None:
+        profile_lines.append(f"Monthly revenue: {company.monthly_revenue:,.0f}")
+    if company.monthly_expenses is not None:
+        profile_lines.append(f"Monthly expenses (burn): {company.monthly_expenses:,.0f}")
+    if company.cash_available is not None:
+        profile_lines.append(f"Cash available: {company.cash_available:,.0f}")
+    if company.runway_months is not None:
+        profile_lines.append(f"Runway: {company.runway_months} months (auto-calculated)")
+    if company.funding_raised:
+        profile_lines.append(f"Funding raised to date: {company.funding_raised:,.0f}")
+    if goals:
+        profile_lines.append(f"Business goals: {', '.join(goals)}")
+    if founder:
+        profile_lines.append(
+            f"Founder: {founder.full_name} ({founder.role or 'Founder'}) | "
+            f"decision style: {founder.decision_style or 'balanced'} | "
+            f"biggest challenge: {founder.biggest_challenge or 'n/a'}"
+        )
+    business_profile_text = (
+        "\n\nCOMPANY BUSINESS PROFILE (from onboarding - ground your analysis in these exact facts):\n- "
+        + "\n- ".join(profile_lines)
+    )
+
     # 1. DECISION MEMORY: was something similar already decided?
     similar_model = None
     reevaluation_note = ""
@@ -190,7 +222,7 @@ async def create_decision(request: DecisionRequest, db: Session = Depends(get_db
     rag = build_rag_context(request.question, request.company_id)
     context = {
         "company": {"name": company.name, "industry": company.industry, "size": company.size},
-        "decision_context": request.context + reevaluation_note,
+        "decision_context": request.context + business_profile_text + reevaluation_note,
         "document_chunks": rag["document_chunks"],
         "past_decisions": rag["past_decisions"],
     }
@@ -218,7 +250,7 @@ async def create_decision(request: DecisionRequest, db: Session = Depends(get_db
 
     # 6. Judge synthesizes (with explicit re-evaluation if memory hit)
     judge = JudgeAgent()
-    recommendation = await judge.synthesize(analyses, question=request.question + reevaluation_note)
+    recommendation = await judge.synthesize(analyses, question=request.question + business_profile_text + reevaluation_note)
 
     # 7. Persist to the Decision Ledger
     row = Decision(

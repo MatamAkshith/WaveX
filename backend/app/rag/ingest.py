@@ -107,3 +107,28 @@ def index_decision(company_id, decision_id, title, question, recommendation, sta
         ],
     )
     logger.info(f"Indexed decision {decision_id} into decision memory")
+
+
+def index_context_memory(company_id, content):
+    """Index the founder's long-form company context into Chroma so every
+    advisor can retrieve it semantically. Upserts by stable ids (re-running
+    onboarding overwrites rather than duplicates)."""
+    chunks = chunk_text(content)
+    if not chunks:
+        return 0
+    collection = get_collection()
+    collection.upsert(
+        ids=[f"ctx{company_id}_chunk{i}" for i in range(len(chunks))],
+        documents=chunks,
+        metadatas=[
+            {
+                "company_id": company_id,
+                "domain": "general",
+                "source": "Company context memory (onboarding)",
+                "kind": "context",
+            }
+            for _ in chunks
+        ],
+    )
+    logger.info(f"Indexed {len(chunks)} context-memory chunks for company {company_id}")
+    return len(chunks)

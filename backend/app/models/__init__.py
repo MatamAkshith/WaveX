@@ -1,6 +1,13 @@
-"""Importing models here registers them on Base.metadata,
-so create_all() and Alembic can see them."""
+"""Importing models here registers them on Base.metadata."""
 
-from app.models.entities import Company, Decision, Document
+from app.models.entities import (
+    Company,
+    CompanyGoal,
+    ContextMemory,
+    Decision,
+    Document,
+    Founder,
+    FounderPreference,
+)
 
-__all__ = ["Company", "Decision", "Document"]
+__all__ = ["Company", "CompanyGoal", "ContextMemory", "Decision", "Document", "Founder", "FounderPreference"]
