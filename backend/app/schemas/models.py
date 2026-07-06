@@ -1,6 +1,35 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
+
+
+class UserCreate(BaseModel):
+    """Schema for user signup (JWT auth)."""
+
+    email: EmailStr = Field(..., description="Account email address (unique)")
+    password: str = Field(..., min_length=8, max_length=128, description="Plaintext password; stored only as a bcrypt hash")
+
+
+class UserResponse(BaseModel):
+    """Public representation of a user account (never exposes the hash)."""
+
+    id: int = Field(..., description="Unique database ID of the user")
+    email: str = Field(..., description="Account email address")
+    created_at: datetime = Field(..., description="Account creation timestamp")
+
+
+class SignupResponse(BaseModel):
+    """Clean success payload returned by POST /api/auth/signup."""
+
+    message: str = Field(..., description="Human-readable success message")
+    user: UserResponse = Field(..., description="The newly created account")
+
+
+class Token(BaseModel):
+    """JWT access token container returned by POST /api/auth/login."""
+
+    access_token: str = Field(..., description="Signed JWT bearer token")
+    token_type: str = Field(default="bearer", description="Token type for the Authorization header")
 
 
 class CompanyCreate(BaseModel):
@@ -9,6 +38,14 @@ class CompanyCreate(BaseModel):
     name: str = Field(..., description="Name of the company")
     industry: str = Field(..., description="Industry the company operates in")
     size: str = Field(..., description="Size of the company (e.g. number of employees)")
+
+
+class CompanyUpdate(BaseModel):
+    """Schema for partial company updates (PUT /company/{id})."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255, description="New company name")
+    industry: Optional[str] = Field(None, min_length=1, max_length=255, description="New industry")
+    size: Optional[str] = Field(None, min_length=1, max_length=100, description="New company size")
 
 
 class CompanyResponse(BaseModel):
@@ -99,6 +136,12 @@ class ApprovalRequest(BaseModel):
 
     decision_id: int = Field(..., description="ID of the decision to approve/reject")
     approved: bool = Field(..., description="True if approved, False if rejected")
+    comments: Optional[str] = Field(None, description="Optional explanation or comments")
+
+
+class ApprovalCommentRequest(BaseModel):
+    """Optional body for POST /decision/{id}/approve and /reject."""
+
     comments: Optional[str] = Field(None, description="Optional explanation or comments")
 
 

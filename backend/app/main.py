@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from app.api.auth import router as auth_router
 from app.api.onboarding import router as onboarding_router
 from app.api.routes import router as api_router
 from app.core.config import settings
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 # tables, so on SQLite we add any missing columns in place (dev convenience;
 # Postgres deployments start fresh or use Alembic).
 _COMPANY_MIGRATIONS = {
+    "user_id": "INTEGER",
     "founder_id": "INTEGER",
     "stage": "VARCHAR(50)",
     "team_size": "INTEGER",
@@ -78,6 +80,7 @@ app.add_middleware(
 # Database firewall: X-API-Key required on data routes when armed
 app.add_middleware(ApiKeyMiddleware)
 
+app.include_router(auth_router)
 app.include_router(onboarding_router)
 app.include_router(api_router)
 

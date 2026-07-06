@@ -31,13 +31,16 @@ from app.agents.base import (
     LegalAgent,
     PlannerAgent,
 )
+from app.api.deps import get_current_user
 from app.database.deps import get_db
-from app.models import Company, Decision, Document
+from app.models import Company, Decision, Document, User
 from app.rag import build_rag_context, find_similar_decision, index_decision, ingest_document, retrieve
 from app.schemas.models import (
+    ApprovalCommentRequest,
     ApprovalRequest,
     CompanyCreate,
     CompanyResponse,
+    CompanyUpdate,
     DecisionRequest,
     DecisionResponse,
     DocumentResponse,
@@ -72,45 +75,89 @@ def _decision_to_response(d, similar=None):
     )
 
 
-def _get_company_or_404(db, company_id):
+def _get_owned_company_or_404(db: Session, company_id: int, user: User) -> Company:
+    """Tenancy gate: a company resolves ONLY for the user that owns it.
+    Cross-tenant access returns the same 404 as a nonexistent id, so
+    authenticated users cannot probe which company ids exist."""
     company = db.get(Company, company_id)
-    if not company:
+    if not company or company.user_id != user.id:
         raise HTTPException(status_code=404, detail="Company not found")
     return company
 
 
-@router.post(
-    "/company",
-    response_model=CompanyResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new company",
-)
-def create_company(company: CompanyCreate, db: Session = Depends(get_db)) -> CompanyResponse:
-    row = Company(name=company.name, industry=company.industry, size=company.size)
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+def _get_owned_decision_or_404(db: Session, decision_id: int, user: User) -> Decision:
+    """Tenancy gate for decisions, enforced through the owning company."""
+    row = db.get(Decision, decision_id)
+    if not row or not row.company or row.company.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return row
+
+
+def _company_to_response(row: Company) -> CompanyResponse:
     return CompanyResponse(
         id=row.id, name=row.name, industry=row.industry, size=row.size, created_at=row.created_at
     )
 
 
 @router.post(
-    "/company/{company_id}/documents",
-    response_model=DocumentResponse,
+    "/company",
+    response_model=CompanyResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload a document into the company's knowledge base",
+    summary="Register a new company (owned by the authenticated user)",
 )
-async def upload_document(
-    company_id: int,
-    file: UploadFile = File(...),
-    domain: str = Form(default="general"),
+def create_company(
+    company: CompanyCreate,
     db: Session = Depends(get_db),
-) -> DocumentResponse:
-    """Accepts PDF/TXT/MD. Chunks, embeds, and indexes into ChromaDB with
-    company_id metadata so retrieval stays private per company."""
-    _get_company_or_404(db, company_id)
+    current_user: User = Depends(get_current_user),
+) -> CompanyResponse:
+    row = Company(
+        user_id=current_user.id, name=company.name, industry=company.industry, size=company.size
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _company_to_response(row)
 
+
+@router.get(
+    "/company/{company_id}",
+    response_model=CompanyResponse,
+    summary="Retrieve one of the authenticated user's companies",
+)
+def get_company(
+    company_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompanyResponse:
+    return _company_to_response(_get_owned_company_or_404(db, company_id, current_user))
+
+
+@router.put(
+    "/company/{company_id}",
+    response_model=CompanyResponse,
+    summary="Update one of the authenticated user's companies",
+)
+def update_company(
+    company_id: int,
+    request: CompanyUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompanyResponse:
+    row = _get_owned_company_or_404(db, company_id, current_user)
+    if request.name is not None:
+        row.name = request.name
+    if request.industry is not None:
+        row.industry = request.industry
+    if request.size is not None:
+        row.size = request.size
+    db.commit()
+    db.refresh(row)
+    return _company_to_response(row)
+
+
+async def _ingest_upload(db: Session, company_id: int, file: UploadFile, domain: str) -> DocumentResponse:
+    """Persist document metadata, then chunk/embed/index into ChromaDB with
+    company_id metadata so retrieval stays private per company."""
     doc = Document(company_id=company_id, filename=file.filename, domain=domain)
     db.add(doc)
     db.commit()
@@ -132,14 +179,72 @@ async def upload_document(
     return DocumentResponse.model_validate(doc, from_attributes=True)
 
 
+@router.post(
+    "/company/{company_id}/documents",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a document into the company's knowledge base",
+)
+async def upload_document(
+    company_id: int,
+    file: UploadFile = File(...),
+    domain: str = Form(default="general"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    """Accepts PDF/TXT/MD. Only the company's owner may upload."""
+    _get_owned_company_or_404(db, company_id, current_user)
+    return await _ingest_upload(db, company_id, file, domain)
+
+
+@router.post(
+    "/documents/upload",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a document (company_id as form field)",
+)
+async def upload_document_flat(
+    company_id: int = Form(...),
+    file: UploadFile = File(...),
+    domain: str = Form(default="general"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    """Flat variant of the company-scoped upload; identical ownership gate."""
+    _get_owned_company_or_404(db, company_id, current_user)
+    return await _ingest_upload(db, company_id, file, domain)
+
+
 @router.get(
     "/company/{company_id}/documents",
     response_model=List[DocumentResponse],
     summary="List a company's uploaded documents",
 )
-def list_documents(company_id: int, db: Session = Depends(get_db)) -> List[DocumentResponse]:
-    _get_company_or_404(db, company_id)
+def list_documents(
+    company_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[DocumentResponse]:
+    _get_owned_company_or_404(db, company_id, current_user)
     docs = db.query(Document).filter(Document.company_id == company_id).all()
+    return [DocumentResponse.model_validate(d, from_attributes=True) for d in docs]
+
+
+@router.get(
+    "/documents",
+    response_model=List[DocumentResponse],
+    summary="List all documents across the authenticated user's companies",
+)
+def list_all_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[DocumentResponse]:
+    docs = (
+        db.query(Document)
+        .join(Company, Document.company_id == Company.id)
+        .filter(Company.user_id == current_user.id)
+        .all()
+    )
     return [DocumentResponse.model_validate(d, from_attributes=True) for d in docs]
 
 
@@ -149,8 +254,14 @@ def list_documents(company_id: int, db: Session = Depends(get_db)) -> List[Docum
     status_code=status.HTTP_201_CREATED,
     summary="Create and analyze a decision",
 )
-async def create_decision(request: DecisionRequest, db: Session = Depends(get_db)) -> DecisionResponse:
-    company = _get_company_or_404(db, request.company_id)
+async def create_decision(
+    request: DecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionResponse:
+    # Tenancy gate FIRST: no agent/RAG pipeline runs for a company the
+    # authenticated user does not own.
+    company = _get_owned_company_or_404(db, request.company_id, current_user)
 
     # BUSINESS PROFILE: every advisor automatically receives the founder's
     # onboarding data - metrics, goals, style - with zero repetition needed.
@@ -277,34 +388,36 @@ async def create_decision(request: DecisionRequest, db: Session = Depends(get_db
     response_model=DecisionResponse,
     summary="Retrieve a specific decision analysis",
 )
-def get_decision(id: int, db: Session = Depends(get_db)) -> DecisionResponse:
-    row = db.get(Decision, id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Decision not found")
-    return _decision_to_response(row)
+def get_decision(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DecisionResponse:
+    return _decision_to_response(_get_owned_decision_or_404(db, id, current_user))
 
 
 @router.get(
     "/history",
     response_model=List[DecisionResponse],
-    summary="Retrieve decision history",
+    summary="Retrieve the authenticated user's decision history",
 )
-def get_history(db: Session = Depends(get_db)) -> List[DecisionResponse]:
-    rows = db.query(Decision).order_by(Decision.created_at.desc()).all()
+def get_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[DecisionResponse]:
+    rows = (
+        db.query(Decision)
+        .join(Company, Decision.company_id == Company.id)
+        .filter(Company.user_id == current_user.id)
+        .order_by(Decision.created_at.desc())
+        .all()
+    )
     return [_decision_to_response(r) for r in rows]
 
 
-@router.post(
-    "/approve",
-    summary="Approve or reject a decision recommendation",
-)
-def approve_decision(request: ApprovalRequest, db: Session = Depends(get_db)) -> dict:
-    row = db.get(Decision, request.decision_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Decision not found")
-
-    row.status = "approved" if request.approved else "rejected"
-    row.approval_comments = request.comments
+def _resolve_decision(db: Session, row: Decision, approved: bool, comments) -> dict:
+    row.status = "approved" if approved else "rejected"
+    row.approval_comments = comments
     db.commit()
 
     # Decision memory: resolved decisions become retrievable context
@@ -323,6 +436,47 @@ def approve_decision(request: ApprovalRequest, db: Session = Depends(get_db)) ->
         logger.warning(f"Could not index decision into memory: {exc}")
 
     return {"status": row.status}
+
+
+@router.post(
+    "/approve",
+    summary="Approve or reject a decision recommendation",
+)
+def approve_decision(
+    request: ApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    row = _get_owned_decision_or_404(db, request.decision_id, current_user)
+    return _resolve_decision(db, row, request.approved, request.comments)
+
+
+@router.post(
+    "/decision/{decision_id}/approve",
+    summary="Approve a decision recommendation",
+)
+def approve_decision_by_id(
+    decision_id: int,
+    request: ApprovalCommentRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    row = _get_owned_decision_or_404(db, decision_id, current_user)
+    return _resolve_decision(db, row, True, request.comments if request else None)
+
+
+@router.post(
+    "/decision/{decision_id}/reject",
+    summary="Reject a decision recommendation",
+)
+def reject_decision_by_id(
+    decision_id: int,
+    request: ApprovalCommentRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    row = _get_owned_decision_or_404(db, decision_id, current_user)
+    return _resolve_decision(db, row, False, request.comments if request else None)
 
 
 # ---------- firewall control (runtime toggle, demo-friendly) ----------

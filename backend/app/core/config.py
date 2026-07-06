@@ -27,6 +27,14 @@ class Settings(BaseSettings):
         default=None,
         description="If set, all data endpoints require the X-API-Key header (database firewall)",
     )
+    SECRET_KEY: str = Field(
+        default="dev-only-insecure-secret-change-me-in-production",
+        description="HMAC key used to sign JWT access tokens; MUST be overridden via .env in production",
+    )
+    ALGORITHM: str = Field(default="HS256", description="JWT signing algorithm")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=30, description="Lifetime of issued JWT access tokens, in minutes"
+    )
     ALLOWED_ORIGINS: str = Field(
         default="http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
         description="Comma-separated CORS origins allowed to call the API",

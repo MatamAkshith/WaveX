@@ -18,6 +18,20 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """Authenticated account (JWT auth). Owns companies; every data route
+    is scoped to the requesting user's records via this ownership chain."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    companies: Mapped[list["Company"]] = relationship(back_populates="user")
+
+
 class Founder(Base):
     __tablename__ = "founders"
 
@@ -58,6 +72,9 @@ class Company(Base):
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     founder_id: Mapped[int | None] = mapped_column(
         ForeignKey("founders.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -75,6 +92,7 @@ class Company(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    user: Mapped["User | None"] = relationship(back_populates="companies")
     founder: Mapped["Founder | None"] = relationship(back_populates="companies")
     decisions: Mapped[list["Decision"]] = relationship(back_populates="company", cascade="all, delete-orphan")
     documents: Mapped[list["Document"]] = relationship(back_populates="company", cascade="all, delete-orphan")

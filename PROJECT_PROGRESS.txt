@@ -160,3 +160,50 @@ revenue/goal stats, live from the summary API.
 Verified: 7-check e2e suite (auth routing, runway calc 11.1mo,
 returning-user redirect, dashboard summary, agent prompts provably
 contain the injected profile, context memory retrievable).
+
+==============================================================
+JWT AUTHENTICATION (added - security branch, 2026-07-05)
+==============================================================
+Production-grade auth layer on top of the existing firewall.
+
+Signup/Login: POST /api/auth/signup (email + password >= 8 chars,
+bcrypt-hashed, 409 on duplicate, case-insensitive email) and
+POST /api/auth/login (OAuth2 password form: username=email) ->
+HS256 JWT with user id in `sub`, expiry from settings
+(SECRET_KEY / ALGORITHM / ACCESS_TOKEN_EXPIRE_MINUTES=30 in .env).
+
+DB: new `users` table (id, unique email, hashed_password,
+created_at); `companies.user_id` FK (SET NULL, indexed) added to
+the SQLite auto-migration map. Legacy rows keep user_id NULL.
+
+Route protection: get_current_user dependency (app/api/deps.py)
+decodes the Bearer token, validates signature + expiry, resolves
+`sub` -> users row; ONE standardized 401 for every failure mode
+(no leak of why). Applied to ALL data routes; each is tenancy-
+scoped to the caller's own companies/decisions/documents.
+Cross-tenant access returns 404 (no ID probing possible).
+Ownership gate runs BEFORE any agent/RAG pipeline executes.
+
+New endpoints (existing paths unchanged - frontend safe):
+GET  /company/{id}              fetch own company
+PUT  /company/{id}              update own company
+POST /documents/upload          flat upload (company_id form field)
+GET  /documents                 all docs across own companies
+POST /decision/{id}/approve     approve by path id
+POST /decision/{id}/reject      reject by path id
+
+Firewall interplay: /api/auth/signup + /api/auth/login added to
+PUBLIC_PATHS so an armed firewall never blocks the login door.
+Legacy /auth/google onboarding flow left public (demo auth).
+
+New deps: python-jose[cryptography], passlib[bcrypt],
+bcrypt==4.0.1 (passlib 1.7.4 compat pin), email-validator.
+
+TESTED: 20-check smoke suite, all passing - signup 201/409/422,
+login 200, wrong-password + unknown-user return IDENTICAL 401s
+(no user enumeration), missing/garbage/forged/expired/no-sub/
+nonexistent-user tokens all 401, owner reads own company 200,
+cross-tenant read 404.
+
+PENDING: frontend must call login and attach Authorization:
+Bearer <token> on all data requests (dashboard 401s until then).

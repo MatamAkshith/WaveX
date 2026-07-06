@@ -8,6 +8,16 @@ from app.models.entities import (
     Document,
     Founder,
     FounderPreference,
+    User,
 )
 
-__all__ = ["Company", "CompanyGoal", "ContextMemory", "Decision", "Document", "Founder", "FounderPreference"]
+__all__ = [
+    "Company",
+    "CompanyGoal",
+    "ContextMemory",
+    "Decision",
+    "Document",
+    "Founder",
+    "FounderPreference",
+    "User",
+]

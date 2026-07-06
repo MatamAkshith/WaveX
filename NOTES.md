@@ -9,6 +9,11 @@ The application follows a clean, modular FastAPI design utilizing synchronous SQ
 - **Why it changed**: Provide a consistent structure for frontend consumption and database access before implementing complex agent logic and RAG.
 - **Impact**: All endpoints return valid mock data immediately without external network or DB calls.
 
+## [2026-07-05T13:26:00+05:30] (branch: security)
+- **What changed**: Full JWT authentication system. New `users` table + `user_id` FK on `companies`; `SECRET_KEY`/`ALGORITHM`/`ACCESS_TOKEN_EXPIRE_MINUTES` in pydantic-settings; password hashing (passlib/bcrypt) and token signing (python-jose, HS256) utilities in `app/core/security.py`; new `POST /api/auth/signup` + `POST /api/auth/login` router (`app/api/auth.py`); `get_current_user` dependency with `OAuth2PasswordBearer(tokenUrl="/api/auth/login")` (`app/api/deps.py`); every data route (company, documents, decision, history, approve/reject) now requires a Bearer token and is tenancy-scoped to the authenticated user's records. Added routes: `GET/PUT /company/{id}`, `POST /documents/upload`, `GET /documents`, `POST /decision/{id}/approve`, `POST /decision/{id}/reject`. New deps: `python-jose[cryptography]`, `passlib[bcrypt]`, `bcrypt==4.0.1`, `email-validator`.
+- **Why it changed**: The API previously trusted every caller; any client could read/write any company's data. JWT auth + per-user ownership scoping closes cross-tenant access (404 on other users' records — no ID probing) before any agent/RAG pipeline runs.
+- **Impact**: 20-check smoke suite passes (signup/dup-409/login, forged/expired/missing tokens all 401, identical 401 bodies prevent user enumeration, cross-tenant reads 404). Existing frontend paths unchanged but now require the `Authorization: Bearer` header — frontend must adopt login before the dashboard works against this branch. Legacy `/auth/google` onboarding flow left public (swappable demo auth). Firewall (X-API-Key) unchanged; auth endpoints whitelisted in its PUBLIC_PATHS.
+
 # Backend
 FastAPI server initialized with CORS middleware allowing all origins. Lifespan events dispose of database engine connections upon shutdown.
 
