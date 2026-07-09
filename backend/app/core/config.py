@@ -46,5 +46,6 @@ class Settings(BaseSettings):
             return v.replace("postgres://", "postgresql://", 1)
         return v
 
-
+settings = Settings()
+print(f"DEBUG: GROQ key loaded, length={len(settings.GROQ_API_KEY) if settings.GROQ_API_KEY else 0}, prefix={settings.GROQ_API_KEY[:8] if settings.GROQ_API_KEY else 'NONE'}")
 settings = Settings()

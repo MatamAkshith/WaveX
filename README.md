@@ -31,3 +31,4 @@ App: http://localhost:5173
 5. **Decision Ledger** page shows the audited history
 6. Firewall demo: POST /firewall/enable in /docs -> data routes return 401
    without X-API-Key; disabling requires the key
+https://claude.ai/chat/1d35c9fc-1cc7-4762-b824-c167bec5f7b8
